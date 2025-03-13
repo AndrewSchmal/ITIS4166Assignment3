@@ -1,1 +1,146 @@
-# ITIS4166Assignment3
+# Assignment 3
+
+In this assignment, you will create a TypeScript Express API using PostgreSQL and the `kysely` query builder. Be sure to use appropriate environment variables for your database connection so we do not have to modify your code to run it. Also be sure to commit your `.env.sample` file so we know which environment variables your application expects but do not commit your `.env` file. Alternatively, use a `config` package to manage your environment variables.
+
+## Requirements
+
+You are to build a backend API to manage and execute A/B tests for multiple tenants. A tenant is a "user" of the system, such as a company that wants to run A/B tests on their website. An A/B test is a way to compare two or more versions of a single variable, typically by testing a subject's response to variant A against variant B, etc. and determining which of the variants is more effective.
+
+Your API just needs to manage and execute A/B tests, it does not need to track outcomes of tests to evaluate test performance, only the number of times each option was served.
+
+### (5pt) Entities
+
+Based on the requirements, you will need to create the following entities (via a DB migration with `kysely`):
+
+- Tenants
+    - Name (unique)
+    - Tenant Secret (randomly generated, cannot change)
+    - API Key (randomly generated, cannot change)
+    - Created At
+    - Updated At
+- A/B Tests
+    - Name
+    - Description
+    - Tenant ID
+    - Options (HINT: This should be a separate table)
+        - Each option should have a name and an integer weight
+        - Sum of all weights should be 100
+    - Created At
+    - Updated At
+- Result
+    - A/B Test ID
+    - Option ID
+    - Session ID
+    - Created At
+
+### (10pt) Features
+
+The API should support the following functionality:
+
+- (2pt) Tenant CRUD (requires super user token)
+    - Create a tenant
+    - Get all tenants (should not return the secret and API keys)
+    - Get a tenant by ID (should not return the secret and API key)
+    - Update a tenant name
+    - Delete a tenant (and all associated A/B tests and results)
+- (2pt) Login route that returns a JWT token (requires tenant secret)
+- (3pt) A/B Test CRUD (requires JWT token)
+    - Create an A/B test
+    - Get all A/B tests for a tenant
+    - Get an A/B test by ID
+    - Update an A/B test
+    - Delete an A/B test (and all associated results)
+- (2pt) Evaluate an A/B test, given a session ID (requires API key)
+- (1pt) Get aggregated results for an A/B test (requires JWT token)
+
+### Routes
+
+For managing tenants and A/B tests, you should create RESTful CRUD routes under the namespace `/admin/v1`, e.g.: `GET /admin/v1/tenants` to get the list of tenants, `PUT /admin/v1/tenants/:tenantId/tests/:testId` to update a test for a given tenant, etc.
+
+When it comes to managing tenants, this is a super user action, so you should require an API key to authenticate and authorize the user. This API key should be passed in the `Authorization` header as a Bearer token. This single token can be hard coded as an environment variable.
+
+```
+GET /admin/v1/tenants
+
+Authorization: Bearer 4c57cf17-b38a-4a15-bb78-7b1fc8b6ad71
+```
+
+For managing A/B tests, this is something that the users in the tenant should do themselves, so they will need a way to authenticate and authorize themselves. You will need to implement a login route that will return a JWT token that can be used to authenticate and authorize the user. This token should be passed in the `Authorization` header as a Bearer token.
+
+```
+POST /admin/v1/login
+```
+
+```json
+{
+    "tenantId": 1,
+    "tenantSecret": "b7edd742-776d-47f1-9640-4daadcb910d3"
+}
+```
+
+On a successful login, you should return a JWT token that encodes the tenant ID in the `sub` field:
+
+```json
+{
+    "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZW5hbnRJZCIsImlhdCI6MTUxNjIzOTAyMn0.g11PliaNr0IiAvdvX08bmfrJp05QGvRQ6eQUPERWRPI"
+}
+```
+
+On requests to other `/admin` endpoints, pass this token as a JWT token in the `Authorization` header as a Bearer token, then check that the `sub` field matches the requested tenant and that the token is not yet expired.
+
+```
+GET /admin/v1/tenants/1/tests
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZW5hbnRJZCIsImlhdCI6MTUxNjIzOTAyMn0.g11PliaNr0IiAvdvX08bmfrJp05QGvRQ6eQUPERWRPI
+```
+
+When you evaluate an A/B test, implement the following route. When using the required API key for authentication and authorization, make sure the test belongs to the matching tenant. Also note that the tenant secret is used for generating a JWT for the above admin routes while the API key is used for this evaluation route.
+
+```
+POST /api/v1/evaluations
+
+Authorization: Bearer 406fdbac-79d5-4df4-bd6f-18f8e0a467de
+```
+
+```json
+{
+    "testId": 2,
+    "sessionId": "c23bccf4-cf29-4dee-b516-f98ce9c5b904"
+}
+```
+
+The `testId` should be from your database, but the session ID can be any string value (we are assuming this is generated by another system, such as Google Analytics, so you can use any values for your tests and in Postman).
+
+This route should randomly select an option given the weights, store the result as a new record in the DB, and respond with the chosen option name:
+
+```json
+{
+    "optionName": "Option A"
+}
+```
+
+You should also be able to get a list of results for a given test by implementing `GET /admin/v1/tenants/:tenantId/tests/:testId/results` with the following response:
+
+```json
+{
+    "testId": 2,
+    "testName": "Homepage Test",
+    "results": [
+        {
+            "optionId": 3,
+            "optionName": "Option A",
+            "count": 100
+        },
+        {
+            "optionId": 4,
+            "optionName": "Option B",
+            "count": 200
+        }
+    ]
+}
+```
+
+### (5pt) Testing
+
+You are required to test the happy path of each route using `node:test` and `supertest`. You _should_ also test the unhappy path of each route, but this is not required. Be sure to use `before` and `beforeEach` hooks appropriately to set up your DB to allow your tests to be run sequentially (by clearing tables, inserting test data, etc.).
+
